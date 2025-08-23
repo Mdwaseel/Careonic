@@ -1,0 +1,86 @@
+{% extends 'app/base.html' %}
+{% load app_filters %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+    <div class="row">
+        <div class="col-md-8">
+            <h2 class="mb-4">Your Health Dashboard</h2>
+            <p class="text-muted">Track your health entries with the calendar below. Red dates indicate recorded data. Click a date to view details.</p>
+            <div id="calendar" style="max-height: 500px; overflow-y: auto;"></div>
+        </div>
+        <div class="col-md-4">
+            <div class="card p-3 h-100">
+                <h5 class="card-title">Quick Actions</h5>
+                <ul class="list-group">
+                    <li class="list-group-item"><a href="{% url 'bp_tracking' %}" class="text-decoration-none">Record New Data</a></li>
+                    <li class="list-group-item"><a href="{% url 'report' %}" class="text-decoration-none">View Report</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Details -->
+    <div class="modal fade" id="entryDetailsModal" tabindex="-1" aria-labelledby="entryDetailsModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="entryDetailsModalLabel">Entry Details for <span id="modalDate"></span></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="modalBody">
+                    <p>Loading details...</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            var calendarEl = document.getElementById('calendar');
+            var calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'dayGridMonth',
+                height: 'auto',
+                events: {{ event_dates|safe }}.map(date => ({
+                    title: 'Entry', // Empty title, we'll use eventContent
+                    date: date,
+                    color: 'red',
+                    display: 'background'
+                })),
+                eventContent: function(arg) {
+                    return { html: `<div style="font-size: 12px; color: black;">${new Date(arg.event.start).toLocaleDateString()}</div>` };
+                },
+                eventClick: function(info) {
+                    var date = info.event.start.toISOString().split('T')[0];
+                    $('#modalDate').text(date);
+                    $('#modalBody').html('<p>Loading details...</p>');
+
+                    // Dynamically construct the URL with the date
+                    var url = '/get_entry_details/' + date + '/'; // Match the URL pattern
+                    $.ajax({
+                        url: url,
+                        method: 'GET',
+                        success: function(response) {
+                            $('#modalBody').html(response.details || '<p>No details available.</p>');
+                        },
+                        error: function() {
+                            $('#modalBody').html('<p>Failed to load details. Try again later.</p>');
+                        }
+                    });
+
+                    var modal = new bootstrap.Modal(document.getElementById('entryDetailsModal'));
+                    modal.show();
+                },
+                eventDidMount: function(info) {
+                    $(info.el).tooltip({ title: 'Click to view details', placement: 'top' });
+                }
+            });
+            calendar.render();
+        });
+    </script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{% endblock %}

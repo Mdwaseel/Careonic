@@ -1,0 +1,212 @@
+{% extends 'app/base.html' %}
+{% load app_filters %}
+{% block title %}Health Tracking{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-10">
+        <h2 class="mb-4">Health Data Entry</h2>
+
+        {% if success %}
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            Data logged successfully!
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endif %}
+
+        <form method="post" class="needs-validation" novalidate>
+            {% csrf_token %}
+            <ul class="nav nav-tabs mb-4" id="dataTabs" role="tablist">
+                <li class="nav-item">
+                    <button class="nav-link active" id="bp-tab" data-bs-toggle="tab" data-bs-target="#bp" type="button">BP</button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link" id="weight-tab" data-bs-toggle="tab" data-bs-target="#weight" type="button">Weight</button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link" id="diet-tab" data-bs-toggle="tab" data-bs-target="#diet" type="button">Diet</button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link" id="symptom-tab" data-bs-toggle="tab" data-bs-target="#symptom" type="button">Symptoms</button>
+                </li>
+            </ul>
+
+            <div class="tab-content">
+                <!-- BP Tab -->
+                <div class="tab-pane fade show active" id="bp">
+                    <div class="card p-4">
+                        <h5>Blood Pressure</h5>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Date</label>
+                                <input type="date" name="bp_measurement_date" class="form-control" value="{{ today }}">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Systolic BP</label>
+                                <input type="number" name="systolic_bp" class="form-control" min="0" max="300">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Diastolic BP</label>
+                                <input type="number" name="diastolic_bp" class="form-control" min="0" max="200">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Heart Rate</label>
+                                <input type="number" name="heart_rate" class="form-control" min="0" max="200">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Notes</label>
+                                <textarea name="bp_notes" class="form-control" rows="2"></textarea>
+                            </div>
+                        </div>
+                        <button type="submit" name="submit_bp" class="btn btn-primary mt-3">Log BP</button>
+                    </div>
+                </div>
+
+                <!-- Weight Tab -->
+                <div class="tab-pane fade" id="weight">
+                    <div class="card p-4">
+                        <h5>Weight</h5>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Date</label>
+                                <input type="date" name="weight_date" class="form-control" value="{{ today }}">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Weight (kg)</label>
+                                <input type="number" step="0.01" name="weight" class="form-control" min="0" max="500">
+                            </div>
+                        </div>
+                        <button type="submit" name="submit_weight" class="btn btn-primary mt-3">Log Weight</button>
+                    </div>
+                </div>
+
+                <!-- Diet Tab -->
+                <div class="tab-pane fade" id="diet">
+                    <div class="card p-4">
+                        <h5>Diet</h5>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Date</label>
+                                <input type="date" name="diet_date" class="form-control" value="{{ today }}">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Sodium (mg)</label>
+                                <input type="number" name="sodium_intake" class="form-control" min="0" max="10000">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Potassium (mg)</label>
+                                <input type="number" name="potassium_intake" class="form-control" min="0" max="10000">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Carbs (g)</label>
+                                <input type="number" name="carb_intake" class="form-control" min="0" max="1000">
+                            </div>
+                        </div>
+                        <button type="submit" name="submit_diet" class="btn btn-primary mt-3">Log Diet</button>
+                    </div>
+                </div>
+
+                <!-- Symptom Tab -->
+                <div class="tab-pane fade" id="symptom">
+                    <div class="card p-4">
+                        <h5>Symptom</h5>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Date</label>
+                                <input type="date" name="symptom_date" class="form-control" value="{{ today }}">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Symptom</label>
+                                <input type="text" name="symptom_description" class="form-control">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Severity</label>
+                                <select name="severity" class="form-select">
+                                    <option value="">Select Severity</option>
+                                    <option value="Mild">Mild</option>
+                                    <option value="Moderate">Moderate</option>
+                                    <option value="Severe">Severe</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="submit" name="submit_symptom" class="btn btn-primary mt-3">Log Symptom</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Submit All -->
+            <div class="text-center mt-4">
+                <button type="submit" name="submit_all" class="btn btn-success">Submit All</button>
+            </div>
+        </form>
+
+        <!-- Recent Entries -->
+        <h3 class="mt-5">Recent Entries</h3>
+        {% if measurements or weight_logs or diet_logs or symptom_logs %}
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead class="table-primary">
+                    <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>Details</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in measurements %}
+                    <tr>
+                        <td>{{ m.measurement_date|date:'F d, Y' }}</td>
+                        <td>BP</td>
+                        <td>{{ m.systolic_bp }}/{{ m.diastolic_bp }} mmHg, HR: {{ m.heart_rate|default:"N/A" }}</td>
+                        <td>{{ m.notes|default:"None" }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% for w in weight_logs %}
+                    <tr>
+                        <td>{{ w.log_date|date:'F d, Y' }}</td>
+                        <td>Weight</td>
+                        <td>{{ w.weight }} kg</td>
+                        <td>-</td>
+                    </tr>
+                    {% endfor %}
+                    {% for d in diet_logs %}
+                    <tr>
+                        <td>{{ d.log_date|date:'F d, Y' }}</td>
+                        <td>Diet</td>
+                        <td>Sodium: {{ d.sodium_intake }} mg, Potassium: {{ d.potassium_intake }} mg, Carbs: {{ d.carb_intake }} g</td>
+                        <td>-</td>
+                    </tr>
+                    {% endfor %}
+                    {% for s in symptom_logs %}
+                    <tr>
+                        <td>{{ s.log_date|date:'F d, Y' }}</td>
+                        <td>Symptom</td>
+                        <td>{{ s.symptom_description }} ({{ s.severity }})</td>
+                        <td>-</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted">No recent entries available.</p>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+(function () {
+    'use strict'
+    var forms = document.querySelectorAll('.needs-validation')
+    Array.prototype.slice.call(forms).forEach(function (form) {
+        form.addEventListener('submit', function (event) {
+            if (!form.checkValidity()) {
+                event.preventDefault()
+                event.stopPropagation()
+            }
+            form.classList.add('was-validated')
+        }, false)
+    })
+})()
+</script>
+{% endblock %}
