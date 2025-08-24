@@ -26,7 +26,7 @@ SECRET_KEY = 'django-insecure--&!c*#7oz$$scgrw^ae+5!)xab&67b8#7tvetil(0-q+m^+&qi
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-ALLOWED_HOSTS = ["healthcare_mini.onrender.com", "localhost", "127.0.0.1"]
+ALLOWED_HOSTS = ["careonic.onrender.com", "localhost", "127.0.0.1"]
 
 
 # Application definition
@@ -82,7 +82,6 @@ DATABASES = {
     }
 }
 
-
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
 
@@ -117,7 +116,14 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
+LANGUAGE_CODE = 'en-us'
+TIME_ZONE = 'UTC'
+USE_I18N = True
+USE_TZ = True
 STATIC_URL = 'static/'
+STATICFILES_DIRS = [BASE_DIR / 'static']
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
