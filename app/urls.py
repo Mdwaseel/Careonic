@@ -10,6 +10,7 @@ urlpatterns = [
     path('report/', views.generate_report, name='report'),
     path('download_report/', views.download_report, name='download_report'),
     path('logout/', LogoutView.as_view(next_page='login'), name='logout'),
+    path('profile/', views.profile, name='profile'),
     path('get_entry_details/<str:date>/', views.get_entry_details, name='get_entry_details'),
     
 ]

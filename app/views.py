@@ -32,8 +32,13 @@ from reportlab.lib.units import inch
 import matplotlib
 matplotlib.use('Agg')  # ✅ Fix for Django environment
 import matplotlib.pyplot as plt
+from cryptography.fernet import Fernet
+import os
 
 logger = logging.getLogger(__name__)
+
+key = Fernet.generate_key()
+cipher_suite = Fernet(key)
 
 def signup(request):
     if request.method == "POST":
@@ -44,6 +49,9 @@ def signup(request):
             user = user_form.save()
             profile = profile_form.save(commit=False)
             profile.user = user
+            # Optional PIN encryption (example)
+            pin = request.POST.get('pin', '1234')  # Default PIN if not provided
+            profile.set_encrypted_pin(pin)
             profile.save()
             login(request, user)  # Auto login after signup
             return redirect('dashboard')
@@ -58,13 +66,28 @@ def signup(request):
 
 def user_login(request):
     if request.method == 'POST':
-        form = AuthenticationForm(data=request.POST)
+        form = AuthenticationForm(request, data=request.POST)
+        pin = request.POST.get('pin', '').strip()  # extra field
+        
         if form.is_valid():
-            user = form.get_user()
-            login(request, user)
-            return redirect('dashboard')
+            user = form.get_user()  # user validated with username+password
+            
+            try:
+                profile = UserProfile.objects.get(user=user)
+                stored_pin = profile.get_decrypted_pin()
+
+                if stored_pin and pin == stored_pin:
+                    login(request, user)   # ✅ all 3 checks passed
+                    return redirect('dashboard')
+                else:
+                    form.add_error(None, "Invalid Security PIN. Please try again.")
+            except UserProfile.DoesNotExist:
+                form.add_error(None, "No Security PIN set for this account. Contact support.")
+        else:
+            form.add_error(None, "Invalid username or password.")
     else:
         form = AuthenticationForm()
+
     return render(request, 'app/login.html', {'form': form})
 
 @login_required
@@ -74,77 +97,124 @@ def dashboard(request):
     event_dates = [d.strftime('%Y-%m-%d') for d in entries]
     return render(request, 'app/dashboard.html', {'event_dates': json.dumps(event_dates)})
 
+
+@login_required
+def profile(request):
+    try:
+        profile = request.user.userprofile
+    except UserProfile.DoesNotExist:
+        profile = UserProfile(user=request.user)
+        profile.save()
+
+    if request.method == "POST":
+        form = UserProfileForm(request.POST, instance=profile)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Profile updated successfully!")
+            return redirect('profile')
+    else:
+        form = UserProfileForm(instance=profile)
+
+    return render(request, 'app/profile.html', {'form': form})
+
+import logging
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
 @login_required
 def bp_tracking(request):
     today = date.today().strftime('%Y-%m-%d')
+    selected_date = request.GET.get('date', today)
 
     if request.method == 'POST':
-        # ✅ Handle BP
-        if request.POST.get('systolic_bp') and request.POST.get('diastolic_bp'):
-            bp_form = BPForm({
-                'measurement_date': request.POST.get('bp_measurement_date'),
-                'systolic_bp': request.POST.get('systolic_bp'),
-                'diastolic_bp': request.POST.get('diastolic_bp'),
-                'heart_rate': request.POST.get('heart_rate'),
-                'notes': request.POST.get('bp_notes'),
-            })
+        logger.info("Received POST request with data: %s", request.POST)
+        saved_forms = []
+
+        try:
+            # Handle BP
+            bp_form = BPForm(request.POST)
             if bp_form.is_valid():
                 bp = bp_form.save(commit=False)
                 bp.user = request.user
                 bp.save()
+                saved_forms.append('Blood Pressure')
 
-        # ✅ Handle Weight
-        if request.POST.get('weight'):
-            weight_form = WeightForm({
-                'log_date': request.POST.get('weight_date') or date.today(),   # fixed
-                'weight': request.POST.get('weight'),
-            })
+            # Handle Weight
+            weight_form = WeightForm(request.POST)
             if weight_form.is_valid():
                 w = weight_form.save(commit=False)
                 w.user = request.user
                 w.save()
+                saved_forms.append('Weight')
 
-        # ✅ Handle Diet
-        if request.POST.get('sodium_intake') or request.POST.get('potassium_intake') or request.POST.get('carb_intake'):
-            diet_form = DietForm({
-                'log_date': request.POST.get('diet_date'),   # fixed
-                'sodium_intake': request.POST.get('sodium_intake'),
-                'potassium_intake': request.POST.get('potassium_intake'),
-                'carb_intake': request.POST.get('carb_intake'),
-            })
+            # Handle Diet
+            diet_form = DietForm(request.POST)
             if diet_form.is_valid():
                 d = diet_form.save(commit=False)
                 d.user = request.user
                 d.save()
+                saved_forms.append('Diet')
 
-        # ✅ Handle Symptom
-        if request.POST.get('symptom_description'):
-            symptom_form = SymptomForm({
-                'log_date': request.POST.get('symptom_date'),   # fixed
-                'symptom_description': request.POST.get('symptom_description'),
-                'severity': request.POST.get('severity'),
-            })
+            # Handle Symptom
+            symptom_form = SymptomForm(request.POST)
             if symptom_form.is_valid():
                 s = symptom_form.save(commit=False)
                 s.user = request.user
                 s.save()
+                saved_forms.append('Symptom')
 
-        messages.success(request, "All valid data logged successfully!")
-        return redirect('bp_tracking')
+            if request.POST.get('submit_all'):
+                if saved_forms:
+                    messages.success(request, f"Successfully logged: {', '.join(saved_forms)}.")
+                else:
+                    messages.warning(request, "No valid data to log. Please fill out at least one form.")
+            else:
+                if saved_forms:
+                    messages.success(request, f"Successfully logged {saved_forms[0]}.")
+                else:
+                    messages.warning(request, "Invalid data. Please check the form.")
 
-    # load recent logs
-    measurements = BPMeasurement.objects.filter(user=request.user).order_by('-measurement_date')[:5]
-    weight_logs = WeightLog.objects.filter(user=request.user).order_by('-log_date')[:5]
-    diet_logs = DietLog.objects.filter(user=request.user).order_by('-log_date')[:5]
-    symptom_logs = SymptomLog.objects.filter(user=request.user).order_by('-log_date')[:5]
+            redirect_url = f'bp_tracking?date={selected_date}' if selected_date != today else 'bp_tracking'
+            logger.info("Redirecting to: %s", redirect_url)
+            return redirect(redirect_url)
 
-    return render(request, 'app/bp_tracking.html', {
+        except Exception as e:
+            logger.error("Error processing POST request: %s", str(e))
+            messages.error(request, "An error occurred while saving data. Please try again.")
+            return render(request, 'app/bp_tracking.html', {
+                'bp_form': bp_form,
+                'weight_form': weight_form,
+                'diet_form': diet_form,
+                'symptom_form': symptom_form,
+                'measurements': BPMeasurement.objects.filter(user=request.user, measurement_date=selected_date),
+                'weight_logs': WeightLog.objects.filter(user=request.user, log_date=selected_date),
+                'diet_logs': DietLog.objects.filter(user=request.user, log_date=selected_date),
+                'symptom_logs': SymptomLog.objects.filter(user=request.user, log_date=selected_date),
+            })
+
+    # GET request handling
+    bp_form = BPForm(initial={'measurement_date': selected_date})
+    weight_form = WeightForm(initial={'log_date': selected_date})
+    diet_form = DietForm(initial={'log_date': selected_date})
+    symptom_form = SymptomForm(initial={'log_date': selected_date})
+
+    measurements = BPMeasurement.objects.filter(user=request.user, measurement_date=selected_date)
+    weight_logs = WeightLog.objects.filter(user=request.user, log_date=selected_date)
+    diet_logs = DietLog.objects.filter(user=request.user, log_date=selected_date)
+    symptom_logs = SymptomLog.objects.filter(user=request.user, log_date=selected_date)
+
+    context = {
+        'bp_form': bp_form,
+        'weight_form': weight_form,
+        'diet_form': diet_form,
+        'symptom_form': symptom_form,
         'measurements': measurements,
         'weight_logs': weight_logs,
         'diet_logs': diet_logs,
         'symptom_logs': symptom_logs,
-        'today': today,
-    })
+    }
+    return render(request, 'app/bp_tracking.html', context)
 
 
 @login_required

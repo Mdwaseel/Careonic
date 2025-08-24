@@ -37,6 +37,13 @@
                     </div>
                 {% endfor %}
 
+                <!-- PIN Field -->
+                <div class="mb-3">
+                    <label for="pin" class="form-label">Security PIN (Optional)</label>
+                    <input type="text" name="pin" id="pin" class="form-control" placeholder="Enter a 4-digit PIN (e.g., 1234)" maxlength="4" pattern="\d{4}" title="Please enter a 4-digit number">
+                    <div class="invalid-feedback">Please enter a valid 4-digit PIN.</div>
+                </div>
+
                 <button type="submit" class="btn btn-primary w-100">Sign Up</button>
             </form>
             <p class="text-center mt-3">
