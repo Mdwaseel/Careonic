@@ -30,7 +30,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 import matplotlib
-matplotlib.use('Agg')  # ✅ Fix for Django environment
+matplotlib.use('Agg')  
 import matplotlib.pyplot as plt
 from cryptography.fernet import Fernet
 import os
