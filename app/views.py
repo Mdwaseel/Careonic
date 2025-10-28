@@ -17,6 +17,7 @@ from django.contrib import messages
 from django.utils import timezone
 from .forms import BPForm, WeightForm, DietForm, SymptomForm, UserProfileForm
 from datetime import datetime
+from decouple import config
 import json
 from django.db.models import Avg, Count
 import matplotlib.pyplot as plt
@@ -243,21 +244,32 @@ def send_danger_email(request, user, measurement):
             danger_levels.append(f"Symptom Severity: {measurement.severity} - {measurement.symptom_description}")
 
     if danger_levels:
-        doctor = "Cardiologist" if isinstance(measurement, BPMeasurement) else "Endocrinologist" if hasattr(measurement, 'sugar_level') else "General Physician"
+        doctor = "Cardiologist" if isinstance(measurement, BPMeasurement) else "General Physician"
         message = render_to_string('app/danger_email.html', {
             'user_name': user.username,
             'date_measured': date_measured,
             'danger_levels': danger_levels,
             'appointment_url': request.build_absolute_uri(reverse('schedule_appointment')) + f'?doctor={doctor}&pre_fill=1',
         })
-        send_mail(
-            subject,
-            message,
-            os.getenv('EMAIL_HOST_USER'),
-            [profile.email],
-            html_message=message,
-            fail_silently=False,
-        )
+
+        # DEBUG: Print email instead of sending
+        if config('DEBUG_EMAIL', default=False, cast=bool):
+            logger.info(f"[DEBUG EMAIL] To: {profile.email}\nSubject: {subject}\n{message}")
+            return  # Skip sending
+
+        # PRODUCTION: Send email (will crash on Render)
+        try:
+            send_mail(
+                subject,
+                "Please enable HTML in your email client.",
+                config('EMAIL_HOST_USER'),
+                [profile.email],
+                html_message=message,
+                fail_silently=False,
+            )
+        except Exception as e:
+            logger.error(f"Email failed: {e}")
+
 @login_required
 @require_GET
 def get_entry_details(request, date):
