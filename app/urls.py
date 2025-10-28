@@ -12,5 +12,6 @@ urlpatterns = [
     path('logout/', LogoutView.as_view(next_page='login'), name='logout'),
     path('profile/', views.profile, name='profile'),
     path('get_entry_details/<str:date>/', views.get_entry_details, name='get_entry_details'),
+    path('schedule_appointment/', views.schedule_appointment, name='schedule_appointment')
     
 ]

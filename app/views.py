@@ -3,7 +3,7 @@ from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from django.contrib.auth import login, authenticate
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
-from .models import UserProfile, BPMeasurement, WeightLog, DietLog, SymptomLog
+from .models import UserProfile, BPMeasurement, WeightLog, DietLog, SymptomLog, Appointment
 from django.utils import timezone
 from django.db.models import Avg
 from reportlab.pdfgen import canvas
@@ -30,9 +30,14 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 import matplotlib
+from django.urls import reverse
+from urllib.parse import urlencode
 matplotlib.use('Agg')  
 import matplotlib.pyplot as plt
 from cryptography.fernet import Fernet
+from django.core.mail import send_mail
+from django.template.loader import render_to_string
+from django.urls import reverse
 import os
 
 logger = logging.getLogger(__name__)
@@ -49,11 +54,11 @@ def signup(request):
             user = user_form.save()
             profile = profile_form.save(commit=False)
             profile.user = user
-            # Optional PIN encryption (example)
-            pin = request.POST.get('pin', '1234')  # Default PIN if not provided
+            pin = request.POST.get('pin', '1234')
             profile.set_encrypted_pin(pin)
+            profile.email = profile_form.cleaned_data['email']  # Save email
             profile.save()
-            login(request, user)  # Auto login after signup
+            login(request, user)
             return redirect('dashboard')
     else:
         user_form = UserCreationForm()
@@ -67,17 +72,16 @@ def signup(request):
 def user_login(request):
     if request.method == 'POST':
         form = AuthenticationForm(request, data=request.POST)
-        pin = request.POST.get('pin', '').strip()  # extra field
+        pin = request.POST.get('pin', '').strip()
         
         if form.is_valid():
-            user = form.get_user()  # user validated with username+password
-            
+            user = form.get_user()
             try:
                 profile = UserProfile.objects.get(user=user)
                 stored_pin = profile.get_decrypted_pin()
 
                 if stored_pin and pin == stored_pin:
-                    login(request, user)   # ✅ all 3 checks passed
+                    login(request, user)
                     return redirect('dashboard')
                 else:
                     form.add_error(None, "Invalid Security PIN. Please try again.")
@@ -120,7 +124,7 @@ def profile(request):
 import logging
 
 # Configure logging
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 @login_required
 def bp_tracking(request):
@@ -132,61 +136,67 @@ def bp_tracking(request):
         saved_forms = []
 
         try:
-            # Handle BP
             bp_form = BPForm(request.POST)
+            weight_form = WeightForm(request.POST)
+            diet_form = DietForm(request.POST)
+            symptom_form = SymptomForm(request.POST)
+
             if bp_form.is_valid():
                 bp = bp_form.save(commit=False)
                 bp.user = request.user
                 bp.save()
                 saved_forms.append('Blood Pressure')
+                # Threshold check for BP
+                if bp.systolic_bp > 140 or bp.diastolic_bp > 90 or (hasattr(bp, 'sugar_level') and bp.sugar_level > 200):
+                    send_danger_email(request, request.user, bp)
 
-            # Handle Weight
-            weight_form = WeightForm(request.POST)
             if weight_form.is_valid():
                 w = weight_form.save(commit=False)
                 w.user = request.user
                 w.save()
                 saved_forms.append('Weight')
+                profile = request.user.userprofile
+                if profile.initial_weight and w.weight > profile.initial_weight * 1.05:
+                    send_danger_email(request, request.user, w)
 
-            # Handle Diet
-            diet_form = DietForm(request.POST)
             if diet_form.is_valid():
                 d = diet_form.save(commit=False)
                 d.user = request.user
                 d.save()
                 saved_forms.append('Diet')
+                if d.sodium_intake > 2300 or d.carb_intake > 300:
+                    send_danger_email(request, request.user, d)
 
-            # Handle Symptom
-            symptom_form = SymptomForm(request.POST)
             if symptom_form.is_valid():
                 s = symptom_form.save(commit=False)
                 s.user = request.user
                 s.save()
                 saved_forms.append('Symptom')
+                if s.severity == 'severe':
+                    send_danger_email(request, request.user, s)
 
             if request.POST.get('submit_all'):
                 if saved_forms:
                     messages.success(request, f"Successfully logged: {', '.join(saved_forms)}.")
                 else:
-                    messages.warning(request, "No valid data to log. Please fill out at least one form.")
+                    messages.warning(request, "No valid data to log.")
             else:
                 if saved_forms:
                     messages.success(request, f"Successfully logged {saved_forms[0]}.")
                 else:
-                    messages.warning(request, "Invalid data. Please check the form.")
+                    messages.warning(request, "Invalid data.")
 
-            redirect_url = f'bp_tracking?date={selected_date}' if selected_date != today else 'bp_tracking'
-            logger.info("Redirecting to: %s", redirect_url)
+            redirect_url = reverse('bp_tracking')
+            if selected_date != today:
+                redirect_url += f'?{urlencode({"date": selected_date})}'
+
             return redirect(redirect_url)
 
         except Exception as e:
             logger.error("Error processing POST request: %s", str(e))
-            messages.error(request, "An error occurred while saving data. Please try again.")
+            messages.error(request, "An error occurred while saving data.")
             return render(request, 'app/bp_tracking.html', {
-                'bp_form': bp_form,
-                'weight_form': weight_form,
-                'diet_form': diet_form,
-                'symptom_form': symptom_form,
+                'bp_form': bp_form, 'weight_form': weight_form, 'diet_form': diet_form, 'symptom_form': symptom_form,
                 'measurements': BPMeasurement.objects.filter(user=request.user, measurement_date=selected_date),
                 'weight_logs': WeightLog.objects.filter(user=request.user, log_date=selected_date),
                 'diet_logs': DietLog.objects.filter(user=request.user, log_date=selected_date),
@@ -199,24 +209,55 @@ def bp_tracking(request):
     diet_form = DietForm(initial={'log_date': selected_date})
     symptom_form = SymptomForm(initial={'log_date': selected_date})
 
-    measurements = BPMeasurement.objects.filter(user=request.user, measurement_date=selected_date)
-    weight_logs = WeightLog.objects.filter(user=request.user, log_date=selected_date)
-    diet_logs = DietLog.objects.filter(user=request.user, log_date=selected_date)
-    symptom_logs = SymptomLog.objects.filter(user=request.user, log_date=selected_date)
-
     context = {
-        'bp_form': bp_form,
-        'weight_form': weight_form,
-        'diet_form': diet_form,
-        'symptom_form': symptom_form,
-        'measurements': measurements,
-        'weight_logs': weight_logs,
-        'diet_logs': diet_logs,
-        'symptom_logs': symptom_logs,
+        'bp_form': bp_form, 'weight_form': weight_form, 'diet_form': diet_form, 'symptom_form': symptom_form,
+        'measurements': BPMeasurement.objects.filter(user=request.user, measurement_date=selected_date),
+        'weight_logs': WeightLog.objects.filter(user=request.user, log_date=selected_date),
+        'diet_logs': DietLog.objects.filter(user=request.user, log_date=selected_date),
+        'symptom_logs': SymptomLog.objects.filter(user=request.user, log_date=selected_date),
     }
     return render(request, 'app/bp_tracking.html', context)
 
+def send_danger_email(request, user, measurement):
+    profile = user.userprofile
+    subject = 'Health Alert: Exceeded Danger Levels'
+    date_measured = getattr(measurement, 'measurement_date', getattr(measurement, 'log_date', timezone.now()))
+    danger_levels = []
+    if isinstance(measurement, BPMeasurement):
+        if measurement.systolic_bp > 140:
+            danger_levels.append(f"Systolic BP: {measurement.systolic_bp} mmHg (Threshold: >140)")
+        if measurement.diastolic_bp > 90:
+            danger_levels.append(f"Diastolic BP: {measurement.diastolic_bp} mmHg (Threshold: >90)")
+        if hasattr(measurement, 'sugar_level') and measurement.sugar_level > 200:
+            danger_levels.append(f"Sugar Level: {measurement.sugar_level} mg/dL (Threshold: >200)")
+    elif isinstance(measurement, WeightLog):
+        if profile.initial_weight and measurement.weight > profile.initial_weight * 1.05:
+            danger_levels.append(f"Weight: {measurement.weight} kg (Threshold: >5% of {profile.initial_weight} kg)")
+    elif isinstance(measurement, DietLog):
+        if measurement.sodium_intake > 2300:
+            danger_levels.append(f"Sodium: {measurement.sodium_intake} mg (Threshold: >2300)")
+        if measurement.carb_intake > 300:
+            danger_levels.append(f"Carbs: {measurement.carb_intake} g (Threshold: >300)")
+    elif isinstance(measurement, SymptomLog):
+        if measurement.severity == 'severe':
+            danger_levels.append(f"Symptom Severity: {measurement.severity} - {measurement.symptom_description}")
 
+    if danger_levels:
+        doctor = "Cardiologist" if isinstance(measurement, BPMeasurement) else "Endocrinologist" if hasattr(measurement, 'sugar_level') else "General Physician"
+        message = render_to_string('app/danger_email.html', {
+            'user_name': user.username,
+            'date_measured': date_measured,
+            'danger_levels': danger_levels,
+            'appointment_url': request.build_absolute_uri(reverse('schedule_appointment')) + f'?doctor={doctor}&pre_fill=1',
+        })
+        send_mail(
+            subject,
+            message,
+            os.getenv('EMAIL_HOST_USER'),
+            [profile.email],
+            html_message=message,
+            fail_silently=False,
+        )
 @login_required
 @require_GET
 def get_entry_details(request, date):
@@ -538,3 +579,59 @@ def generate_bar_graph(data, category_field, title, xlabel, ylabel):
     return img_base64
 
 
+@login_required
+def schedule_appointment(request):
+    if request.method == 'POST':
+        user = request.user
+        profile = user.userprofile
+        doctor = request.POST.get('doctor')
+        date_time = request.POST.get('date_time')
+        reason = request.POST.get('reason')
+        contact_info = request.POST.get('contact_info')
+
+        if request.GET.get('pre_fill'):
+            # Pre-filled from email
+            danger_data = request.GET.get('danger_data', '')
+            reason = f"Emergency: {danger_data}" if danger_data else reason
+            doctor = request.GET.get('doctor', doctor)
+
+        appointment = Appointment.objects.create(
+            user=profile,
+            date_time=date_time,
+            doctor=doctor,
+            reason=reason,
+            contact_info=contact_info,
+        )
+        send_confirmation_email(user, appointment)
+        messages.success(request, "Appointment scheduled successfully!")
+        return redirect('dashboard')
+
+    # Pre-fill logic from email
+    initial_data = {}
+    if request.GET.get('pre_fill'):
+        doctor = request.GET.get('doctor', 'General Physician')
+        initial_data = {
+            'doctor': doctor,
+            'reason': request.GET.get('danger_data', 'Health concern'),
+            'contact_info': profile.contact_info or '',
+        }
+
+    return render(request, 'app/schedule_appointment.html', {
+        'form': {'initial': initial_data},
+        'doctors': ['Cardiologist', 'Endocrinologist', 'General Physician'],
+    })
+
+def send_confirmation_email(user, appointment):
+    subject = 'Appointment Confirmation'
+    message = render_to_string('app/confirmation_email.html', {
+        'user_name': user.username,
+        'appointment': appointment,
+    })
+    send_mail(
+        subject,
+        message,
+        os.getenv('EMAIL_HOST_USER'),
+        [user.userprofile.email],
+        html_message=message,
+        fail_silently=False,
+    )

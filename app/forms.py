@@ -5,15 +5,16 @@ from .models import BPMeasurement, WeightLog, DietLog, SymptomLog, UserProfile
 class UserProfileForm(forms.ModelForm):
     class Meta:
         model = UserProfile
-        fields = ['height', 'initial_weight', 'chronic_disease', 'date_of_birth', 'gender']
+        fields = ['height', 'initial_weight', 'chronic_disease', 'date_of_birth', 'gender', 'email']
         widgets = {
             'date_of_birth': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
             'gender': forms.Select(attrs={'class': 'form-control'}),
             'height': forms.NumberInput(attrs={'step': '0.01', 'class': 'form-control'}),
             'initial_weight': forms.NumberInput(attrs={'step': '0.01', 'class': 'form-control'}),
             'chronic_disease': forms.TextInput(attrs={'class': 'form-control'}),
+            'email': forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'Enter your email'}),
         }
-
+        
 class BPForm(forms.ModelForm):
     class Meta:
         model = BPMeasurement

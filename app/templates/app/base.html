@@ -339,9 +339,9 @@
                 <span class="navbar-toggler-icon"></span>
             </button>
 
-            <!-- Navigation Menu -->
+            <!-- Navigation Menu + Schedule Button -->
             <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
+                <ul class="navbar-nav ms-auto align-items-center">
                     <li class="nav-item">
                         <a class="nav-link {% if request.path == '/dashboard/' %}active{% endif %}" 
                            href="{% url 'dashboard' %}">
@@ -369,6 +369,29 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{% url 'logout' %}">
                             <i class="fas fa-sign-out-alt me-2"></i>Logout
+                        </a>
+                    </li>
+
+                    <!-- Schedule Appointment Button (Right-Aligned) -->
+                    <li class="nav-item ms-lg-3 mt-3 mt-lg-0">
+                        <a href="{% url 'schedule_appointment' %}" 
+                           class="btn btn-primary d-flex align-items-center justify-content-center shadow-sm"
+                           style="
+                               background: linear-gradient(135deg, #396afc, #2948ff);
+                               border: none;
+                               border-radius: 12px;
+                               padding: 10px 20px;
+                               font-weight: 600;
+                               font-size: 0.95rem;
+                               transition: all 0.3s ease;
+                               text-decoration: none;
+                               color: white;
+                               min-width: 180px;
+                           "
+                           onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(0,123,255,0.4)';"
+                           onmouseout="this.style.transform=''; this.style.boxShadow='';">
+                            <i class="fas fa-calendar-plus me-2"></i>
+                            Schedule Appointment
                         </a>
                     </li>
                 </ul>
