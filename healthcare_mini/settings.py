@@ -142,3 +142,10 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = config('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
+# ── MongoDB (Patient Vitals) ──────────────────────────────────────────────────
+MONGO_URI = "mongodb+srv://cluster2024:cluster2024@cluster2024.8qmtq.mongodb.net/?appName=cluster2024"
+MONGO_DB_NAME = "users_vital_data"
+
+# ── FastAPI Prediction Server ─────────────────────────────────────────────────
+PREDICT_API_BASE = "https://mdwaseel1-careonic-vitals-api.hf.space/predict"

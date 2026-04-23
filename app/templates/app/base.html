@@ -355,6 +355,18 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/vitals/' %}active{% endif %}" 
+                           href="{% url 'vitals_prediction' %}">
+                            <i class="fas fa-brain me-2"></i>Vitals Forecast
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/vitals-dashboard/' %}active{% endif %}" 
+                           href="{% url 'vitals_dashboard' %}">
+                            <i class="fas fa-chart-area me-2"></i>Vitals Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {% if request.path == '/report/' %}active{% endif %}" 
                            href="{% url 'report' %}">
                             <i class="fas fa-file-medical me-2"></i>Report

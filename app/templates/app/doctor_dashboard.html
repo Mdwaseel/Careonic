@@ -1,0 +1,190 @@
+{% extends 'app/base.html' %}
+{% block title %}Doctor Dashboard{% endblock %}
+
+{% block content %}
+<style>
+    .dashboard-header {
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        color: white;
+        padding: 30px;
+        border-radius: 15px;
+        margin-bottom: 30px;
+        box-shadow: 0 10px 30px rgba(30, 60, 114, 0.2);
+    }
+    
+    .appt-card {
+        background: white;
+        border: none;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 15px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        transition: all 0.3s ease;
+        border-left: 5px solid transparent;
+    }
+    
+    .appt-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+    }
+    
+    .appt-card.available {
+        border-left-color: #f39c12;
+    }
+    
+    .appt-card.accepted {
+        border-left-color: #2ecc71;
+    }
+    
+    .appt-card h5 {
+        font-weight: 700;
+        color: #2c3e50;
+    }
+    
+    .appt-time {
+        font-size: 0.9rem;
+        color: #7f8c8d;
+        background: #f8f9fa;
+        padding: 4px 10px;
+        border-radius: 20px;
+    }
+    
+    .reason-box {
+        background: #f1f4f8;
+        padding: 10px;
+        border-radius: 8px;
+        font-size: 0.95rem;
+        color: #34495e;
+        margin-top: 10px;
+        margin-bottom: 10px;
+    }
+    
+    .section-title {
+        font-weight: 700;
+        color: #2c3e50;
+        margin-bottom: 20px;
+        border-bottom: 2px solid #ecf0f1;
+        padding-bottom: 10px;
+    }
+</style>
+
+<div class="container mt-4">
+    <div class="dashboard-header d-flex justify-content-between align-items-center">
+        <div>
+            <h2 class="mb-0">Welcome, Dr. {{ user.first_name|default:user.username }}</h2>
+            <p class="mb-0 opacity-75 mt-1"><i class="fas fa-stethoscope me-2"></i>{{ doctor.specialty }}</p>
+        </div>
+        <div>
+            <span class="badge bg-light text-primary px-3 py-2 rounded-pill shadow-sm">
+                <i class="fas fa-calendar-check me-1"></i> Doctor Portal
+            </span>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-6 mb-4">
+            <h4 class="section-title"><i class="fas fa-inbox text-warning me-2"></i> Available Appointments</h4>
+            {% if available_appointments %}
+                <div class="list-group" id="available-list">
+                {% for appt in available_appointments %}
+                    <div class="appt-card available" id="appt-{{ appt.id }}">
+                        <div class="d-flex w-100 justify-content-between align-items-center mb-2">
+                            <h5 class="mb-0">{{ appt.user.user.first_name }} {{ appt.user.user.last_name }}</h5>
+                            <span class="appt-time"><i class="far fa-clock me-1"></i>{{ appt.date_time|date:"M d, Y h:i A" }}</span>
+                        </div>
+                        <div class="reason-box">
+                            <strong>Reason:</strong> {{ appt.reason }}
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center mt-3">
+                            <small class="text-muted"><i class="fas fa-phone-alt me-1"></i>{{ appt.contact_info }}</small>
+                            <button class="btn btn-sm btn-primary rounded-pill px-4 shadow-sm" onclick="acceptAppointment({{ appt.id }}, this)">
+                                Accept <i class="fas fa-check ms-1"></i>
+                            </button>
+                        </div>
+                    </div>
+                {% endfor %}
+                </div>
+            {% else %}
+                <div class="alert alert-light text-center border-0 shadow-sm rounded-3 py-4 text-muted">
+                    <i class="fas fa-check-circle fa-3x mb-3 text-success opacity-50"></i>
+                    <p class="mb-0">You're all caught up! No available appointments.</p>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="col-md-6">
+            <h4 class="section-title"><i class="fas fa-tasks text-success me-2"></i> My Accepted Appointments</h4>
+            <div class="list-group" id="my-appointments-list">
+            {% if my_appointments %}
+                {% for appt in my_appointments %}
+                    <div class="appt-card accepted">
+                        <div class="d-flex w-100 justify-content-between align-items-center mb-2">
+                            <h5 class="mb-0">{{ appt.user.user.first_name }} {{ appt.user.user.last_name }}</h5>
+                            <span class="appt-time"><i class="far fa-clock me-1"></i>{{ appt.date_time|date:"M d, Y h:i A" }}</span>
+                        </div>
+                        <div class="reason-box">
+                            <strong>Reason:</strong> {{ appt.reason }}
+                        </div>
+                        <small class="text-muted"><i class="fas fa-phone-alt me-1"></i>{{ appt.contact_info }}</small>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <p id="no-my-appointments" class="text-muted text-center mt-4">You have not accepted any appointments yet.</p>
+            {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function acceptAppointment(apptId, btnElement) {
+    btnElement.disabled = true;
+    btnElement.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Accepting...';
+    
+    fetch("{% url 'accept_appointment' %}", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-CSRFToken": "{{ csrf_token }}"
+        },
+        body: new URLSearchParams({
+            "appointment_id": apptId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert("Appointment accepted! An email has been sent to the patient.");
+            const item = document.getElementById("appt-" + apptId);
+            
+            // Remove the accept button div wrapper if needed, or just the button
+            btnElement.remove();
+            
+            // Change styling to accepted
+            item.classList.remove("available");
+            item.classList.add("accepted");
+            
+            const myList = document.getElementById("my-appointments-list");
+            if (myList) {
+                myList.prepend(item);
+            }
+            const noMsg = document.getElementById("no-my-appointments");
+            if (noMsg) noMsg.style.display = 'none';
+        } else {
+            alert("Failed: " + data.error);
+            btnElement.disabled = false;
+            btnElement.innerHTML = 'Accept <i class="fas fa-check ms-1"></i>';
+            if(data.error.includes("already accepted")) {
+                document.getElementById("appt-" + apptId).remove();
+            }
+        }
+    })
+    .catch(error => {
+        console.error("Error:", error);
+        alert("An error occurred. Please try again.");
+        btnElement.disabled = false;
+        btnElement.innerHTML = 'Accept <i class="fas fa-check ms-1"></i>';
+    });
+}
+</script>
+{% endblock %}

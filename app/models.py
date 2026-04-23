@@ -17,6 +17,7 @@ class UserProfile(models.Model):
     chronic_disease = models.CharField(max_length=50, default='Hypertension')
     encrypted_pin = models.BinaryField(null=True, blank=True)
     email = models.EmailField(max_length=254, unique=True, null=True, blank=True)  # New email field
+    patient_id = models.CharField(max_length=12, unique=True, null=True, blank=True, help_text='Patient ID e.g. HUPA0001P')
 
     def set_encrypted_pin(self, pin):
         if pin:
@@ -28,6 +29,13 @@ class UserProfile(models.Model):
     def __str__(self):
         return f"{self.user.username}'s Profile"
     
+
+class DoctorProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    specialty = models.CharField(max_length=100)
+
+    def __str__(self):
+        return f"Dr. {self.user.first_name or self.user.username} ({self.specialty})"
 
 class BPMeasurement(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -58,11 +66,33 @@ class SymptomLog(models.Model):
 class Appointment(models.Model):
     user = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='appointments')
     date_time = models.DateTimeField()
-    doctor = models.CharField(max_length=100)  # e.g., "Cardiologist", "Endocrinologist"
+    doctor = models.CharField(max_length=100)  # Requested specialty e.g., "Cardiologist", "Endocrinologist"
     reason = models.TextField()
     contact_info = models.CharField(max_length=200)
     status = models.CharField(max_length=20, default='Scheduled')  # e.g., "Scheduled", "Confirmed"
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    # Razorpay and acceptance fields
+    payment_status = models.CharField(max_length=20, default='Pending') # 'Pending', 'Paid', 'Failed'
+    razorpay_order_id = models.CharField(max_length=100, null=True, blank=True)
+    razorpay_payment_id = models.CharField(max_length=100, null=True, blank=True)
+    razorpay_signature = models.CharField(max_length=200, null=True, blank=True)
+    is_accepted = models.BooleanField(default=False)
+    accepted_by = models.ForeignKey(DoctorProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='accepted_appointments')
 
     def __str__(self):
         return f"{self.user.user.username} - {self.date_time}"
+
+
+class GlucoseLog(models.Model):
+    """User-logged glucose and heart rate readings used to drive vitals prediction."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    logged_at = models.DateTimeField(auto_now_add=True)
+    glucose = models.FloatField(help_text='Blood glucose in mg/dL')
+    heart_rate = models.FloatField(help_text='Heart rate in bpm')
+
+    class Meta:
+        ordering = ['-logged_at']
+
+    def __str__(self):
+        return f"{self.user.username} | {self.glucose} mg/dL | {self.heart_rate} bpm @ {self.logged_at.strftime('%Y-%m-%d %H:%M')}"

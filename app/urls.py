@@ -12,6 +12,17 @@ urlpatterns = [
     path('logout/', LogoutView.as_view(next_page='login'), name='logout'),
     path('profile/', views.profile, name='profile'),
     path('get_entry_details/<str:date>/', views.get_entry_details, name='get_entry_details'),
-    path('schedule_appointment/', views.schedule_appointment, name='schedule_appointment')
+    path('schedule_appointment/', views.schedule_appointment, name='schedule_appointment'),
+    path('vitals/', views.vitals_prediction, name='vitals_prediction'),
+    path('vitals/predict/', views.get_vitals_predictions, name='get_vitals_predictions'),
+    # ── Integrated Vitals Dashboard (MongoDB History + Predictions) ──
+    path('vitals-dashboard/', views.vitals_dashboard, name='vitals_dashboard'),
+    path('api/vitals/history/', views.api_vitals_history, name='api_vitals_history'),
+    path('api/vitals/predict/', views.api_vitals_predict, name='api_vitals_predict'),
     
-]
+    # Doctor Portal & Payments
+    path('doctor_login/', views.doctor_login, name='doctor_login'),
+    path('doctor_dashboard/', views.doctor_dashboard, name='doctor_dashboard'),
+    path('payment/verify/', views.verify_payment, name='verify_payment'),
+    path('api/appointment/accept/', views.accept_appointment, name='accept_appointment'),
+]

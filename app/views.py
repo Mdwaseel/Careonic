@@ -3,7 +3,8 @@ from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from django.contrib.auth import login, authenticate
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
-from .models import UserProfile, BPMeasurement, WeightLog, DietLog, SymptomLog, Appointment
+from .models import UserProfile, BPMeasurement, WeightLog, DietLog, SymptomLog, Appointment, GlucoseLog
+import requests as http_requests
 from django.utils import timezone
 from django.db.models import Avg
 from reportlab.pdfgen import canvas
@@ -591,11 +592,20 @@ def generate_bar_graph(data, category_field, title, xlabel, ylabel):
     return img_base64
 
 
+import razorpay
+from django.views.decorators.csrf import csrf_exempt
+from django.db import transaction
+
+RAZORPAY_KEY_ID = "rzp_test_Sh25LbsAjQK0UR"
+RAZORPAY_KEY_SECRET = "7tlh3NeouUQh2CCSzBF3yEj4"
+
+razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+
 @login_required
 def schedule_appointment(request):
+    user = request.user
+    profile = user.userprofile
     if request.method == 'POST':
-        user = request.user
-        profile = user.userprofile
         doctor = request.POST.get('doctor')
         date_time = request.POST.get('date_time')
         reason = request.POST.get('reason')
@@ -607,16 +617,31 @@ def schedule_appointment(request):
             reason = f"Emergency: {danger_data}" if danger_data else reason
             doctor = request.GET.get('doctor', doctor)
 
+        # Create Razorpay Order
+        order_amount = 5000 # 50 INR in paise
+        order_currency = 'INR'
+        payment_order = razorpay_client.order.create(dict(amount=order_amount, currency=order_currency, payment_capture='1'))
+        
         appointment = Appointment.objects.create(
             user=profile,
             date_time=date_time,
             doctor=doctor,
             reason=reason,
             contact_info=contact_info,
+            status='Scheduled',
+            payment_status='Pending',
+            razorpay_order_id=payment_order['id']
         )
-        send_confirmation_email(user, appointment)
-        messages.success(request, "Appointment scheduled successfully!")
-        return redirect('dashboard')
+        
+        # We need to render the payment page instead of redirecting
+        return render(request, 'app/payment.html', {
+            'appointment': appointment,
+            'razorpay_key_id': RAZORPAY_KEY_ID,
+            'order_id': payment_order['id'],
+            'amount': order_amount,
+            'user': user,
+            'profile': profile
+        })
 
     # Pre-fill logic from email
     initial_data = {}
@@ -647,3 +672,274 @@ def send_confirmation_email(user, appointment):
         html_message=message,
         fail_silently=False,
     )
+
+
+# ─── Vitals Prediction Feature ──────────────────────────────────────────────
+
+from django.conf import settings as django_settings
+from pymongo import MongoClient
+
+PREDICT_API_BASE = getattr(django_settings, 'PREDICT_API_BASE', "http://127.0.0.1:8000/predict")
+MONGO_URI = getattr(django_settings, 'MONGO_URI', '')
+MONGO_DB_NAME = getattr(django_settings, 'MONGO_DB_NAME', 'users_vital_data')
+
+
+def _get_patient_id(request):
+    """Return the patient_id for the logged-in user, or None."""
+    try:
+        return request.user.userprofile.patient_id
+    except UserProfile.DoesNotExist:
+        return None
+
+
+@login_required
+def vitals_prediction(request):
+    """
+    GET  – Render the Vitals Forecast page.
+    POST – Save a GlucoseLog entry and return the FastAPI predictions as JSON.
+    """
+    patient_id = _get_patient_id(request)
+    recent_logs = GlucoseLog.objects.filter(user=request.user)[:5]
+
+    if request.method == "POST":
+        try:
+            glucose = float(request.POST.get("glucose", 0))
+            heart_rate = float(request.POST.get("heart_rate", 0))
+        except (TypeError, ValueError):
+            return JsonResponse({"error": "Invalid glucose or heart rate value."}, status=400)
+
+        # Save the log entry
+        GlucoseLog.objects.create(user=request.user, glucose=glucose, heart_rate=heart_rate)
+
+        # Fetch predictions from FastAPI
+        prediction_data = None
+        api_error = None
+        if patient_id:
+            try:
+                resp = http_requests.get(f"{PREDICT_API_BASE}/{patient_id}", timeout=10)
+                resp.raise_for_status()
+                prediction_data = resp.json()
+            except http_requests.exceptions.ConnectionError:
+                api_error = "Prediction server is offline. Please ensure the FastAPI server is running on port 8000."
+            except http_requests.exceptions.Timeout:
+                api_error = "Prediction server timed out. Please try again."
+            except Exception as exc:
+                api_error = f"Prediction error: {str(exc)}"
+        else:
+            api_error = "Your account is not linked to a patient ID. Please contact an administrator."
+
+        return JsonResponse({
+            "success": True,
+            "glucose": glucose,
+            "heart_rate": heart_rate,
+            "predictions": prediction_data.get("predictions", []) if prediction_data else [],
+            "error": api_error,
+        })
+
+    return render(request, "app/vitals_prediction.html", {
+        "patient_id": patient_id,
+        "recent_logs": recent_logs,
+    })
+
+
+@login_required
+@require_GET
+def get_vitals_predictions(request):
+    """AJAX endpoint – fetch predictions for the logged-in user's patient ID."""
+    patient_id = _get_patient_id(request)
+    if not patient_id:
+        return JsonResponse({"error": "No patient ID linked to your account."}, status=400)
+
+    try:
+        resp = http_requests.get(f"{PREDICT_API_BASE}/{patient_id}", timeout=10)
+        resp.raise_for_status()
+        return JsonResponse(resp.json())
+    except http_requests.exceptions.ConnectionError:
+        return JsonResponse({"error": "Prediction server is offline."}, status=503)
+    except http_requests.exceptions.Timeout:
+        return JsonResponse({"error": "Prediction server timed out."}, status=504)
+    except Exception as exc:
+        return JsonResponse({"error": str(exc)}, status=500)
+
+
+# ─── Vitals Dashboard (MongoDB History + Predictions) ────────────────────────
+
+@login_required
+def vitals_dashboard(request):
+    """Integrated vitals dashboard with MongoDB history + prediction charts."""
+    patient_id = _get_patient_id(request)
+    return render(request, "app/vitals_dashboard.html", {
+        "patient_id": patient_id,
+    })
+
+
+@login_required
+@require_GET
+def api_vitals_history(request):
+    """
+    AJAX endpoint — return the full vitals history for the logged-in patient
+    read directly from MongoDB.
+    Optional query: ?limit=50 (default: all records)
+    """
+    patient_id = _get_patient_id(request)
+    if not patient_id:
+        return JsonResponse({"error": "No patient ID linked."}, status=400)
+
+    limit = int(request.GET.get("limit", 0))
+
+    try:
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        db = client[MONGO_DB_NAME]
+        col = db[patient_id]
+
+        query = col.find(
+            {},
+            {"_id": 0, "glucose": 1, "heart_rate": 1, "time_stamp": 1}
+        ).sort("time_stamp", 1)  # oldest first for charting
+
+        if limit > 0:
+            query = query.limit(limit)
+
+        records = []
+        for doc in query:
+            ts = doc.get("time_stamp")
+            if ts is not None:
+                # pymongo returns datetime objects for ISODate fields
+                if hasattr(ts, 'isoformat'):
+                    ts_str = ts.isoformat()
+                else:
+                    ts_str = str(ts)
+            else:
+                ts_str = ""
+            records.append({
+                "time_stamp": ts_str,
+                "glucose": doc.get("glucose"),
+                "heart_rate": doc.get("heart_rate"),
+            })
+        client.close()
+
+        return JsonResponse({
+            "patient_id": patient_id,
+            "total": len(records),
+            "records": records,
+        })
+    except Exception as exc:
+        return JsonResponse({"error": f"MongoDB error: {str(exc)}"}, status=503)
+
+
+@login_required
+@require_GET
+def api_vitals_predict(request):
+    """
+    AJAX endpoint — proxy to FastAPI /predict/{patient_id}.
+    Returns 12 × 5-min predictions for glucose & heart rate.
+    """
+    patient_id = _get_patient_id(request)
+    if not patient_id:
+        return JsonResponse({"error": "No patient ID linked."}, status=400)
+
+    try:
+        resp = http_requests.get(f"{PREDICT_API_BASE}/{patient_id}", timeout=15)
+        resp.raise_for_status()
+        return JsonResponse(resp.json())
+    except http_requests.exceptions.ConnectionError:
+        return JsonResponse({"error": "Prediction server is offline. Start the FastAPI server on port 8000."}, status=503)
+    except http_requests.exceptions.Timeout:
+        return JsonResponse({"error": "Prediction server timed out."}, status=504)
+    except http_requests.exceptions.HTTPError as exc:
+        try:
+            detail = exc.response.json().get("detail", str(exc))
+        except Exception:
+            detail = str(exc)
+        return JsonResponse({"error": detail}, status=exc.response.status_code)
+    except Exception as exc:
+        return JsonResponse({"error": str(exc)}, status=500)
+
+@csrf_exempt
+def verify_payment(request):
+    if request.method == "POST":
+        data = request.POST
+        razorpay_payment_id = data.get('razorpay_payment_id')
+        razorpay_order_id = data.get('razorpay_order_id')
+        razorpay_signature = data.get('razorpay_signature')
+        
+        try:
+            appointment = Appointment.objects.get(razorpay_order_id=razorpay_order_id)
+            
+            # Bypassed signature check for test mode as requested
+            # razorpay_client.utility.verify_payment_signature({
+            #     'razorpay_payment_id': razorpay_payment_id,
+            #     'razorpay_order_id': razorpay_order_id,
+            #     'razorpay_signature': razorpay_signature
+            # })
+            
+            appointment.payment_status = 'Paid'
+            appointment.razorpay_payment_id = razorpay_payment_id or 'dummy_payment_id'
+            appointment.razorpay_signature = razorpay_signature or 'dummy_signature'
+            appointment.save()
+            
+            messages.success(request, "Payment successful! Your appointment has been sent to the doctors.")
+            return redirect('dashboard')
+        except Exception as e:
+            messages.error(request, f"Payment verification failed: {e}")
+            return redirect('dashboard')
+    return HttpResponse(status=400)
+
+
+def doctor_login(request):
+    if request.method == 'POST':
+        form = AuthenticationForm(request, data=request.POST)
+        if form.is_valid():
+            user = form.get_user()
+            if hasattr(user, 'doctorprofile'):
+                login(request, user)
+                return redirect('doctor_dashboard')
+            else:
+                form.add_error(None, "You do not have a doctor profile.")
+        else:
+            form.add_error(None, "Invalid credentials.")
+    else:
+        form = AuthenticationForm()
+    return render(request, 'app/doctor_login.html', {'form': form})
+
+@login_required
+def doctor_dashboard(request):
+    if not hasattr(request.user, 'doctorprofile'):
+        return redirect('dashboard')
+    
+    doctor = request.user.doctorprofile
+    # Show appointments available for picking up (Paid and not accepted, or accepted by me)
+    available_appointments = Appointment.objects.filter(payment_status='Paid', is_accepted=False).order_by('-created_at')
+    my_appointments = Appointment.objects.filter(accepted_by=doctor).order_by('-created_at')
+    
+    return render(request, 'app/doctor_dashboard.html', {
+        'available_appointments': available_appointments,
+        'my_appointments': my_appointments,
+        'doctor': doctor
+    })
+
+from django.views.decorators.http import require_POST
+
+@login_required
+@require_POST
+def accept_appointment(request):
+    if not hasattr(request.user, 'doctorprofile'):
+        return JsonResponse({'success': False, 'error': 'Not a doctor'})
+        
+    appointment_id = request.POST.get('appointment_id')
+    doctor = request.user.doctorprofile
+    
+    with transaction.atomic():
+        # Atomically check and update
+        updated_count = Appointment.objects.filter(id=appointment_id, is_accepted=False).update(
+            is_accepted=True, 
+            accepted_by=doctor
+        )
+        
+        if updated_count > 0:
+            appointment = Appointment.objects.get(id=appointment_id)
+            # Send confirmation email
+            send_confirmation_email(appointment.user.user, appointment)
+            return JsonResponse({'success': True})
+        else:
+            return JsonResponse({'success': False, 'error': 'Appointment already accepted or not found'})
