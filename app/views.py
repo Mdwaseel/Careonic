@@ -44,9 +44,6 @@ import os
 
 logger = logging.getLogger(__name__)
 
-key = Fernet.generate_key()
-cipher_suite = Fernet(key)
-
 def signup(request):
     if request.method == "POST":
         user_form = UserCreationForm(request.POST)
